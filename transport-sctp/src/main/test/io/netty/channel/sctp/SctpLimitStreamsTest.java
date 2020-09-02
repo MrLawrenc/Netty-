@@ -23,6 +23,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import org.junit.Test;
+
 import java.net.InetSocketAddress;
 
 import static org.junit.Assert.*;
