@@ -12,6 +12,11 @@ import org.junit.Test;
  * FastThreadLocal相关源码
  * <p>
  * 无符号右移的规则只记住一点：忽略了符号位扩展，0补最高位  无符号右移运算符>>> 只是对32位和64位的值有意义
+ *
+ *
+ * 字节码计算工具--->JOL Java Object Layout
+ * 推荐IDEA插件：https://plugins.jetbrains.com/plugin/10953-jol-java-object-layout
+ * jdk工具 http://openjdk.java.net/projects/code-tools/jol/
  */
 public class Netty1_FastThreadLocal {
 
@@ -40,6 +45,13 @@ public class Netty1_FastThreadLocal {
     }
 
 
+    /**
+     * {@link io.netty.microbench.concurrent.FastThreadLocalFastPathBenchmark}
+     * {@link io.netty.microbench.concurrent.FastThreadLocalSlowPathBenchmark}
+     *
+     * @see io.netty.util.concurrent.FastThreadLocalTest
+     *
+     */
     @Test
     public void fastThreadLocal() {
         FastThreadLocal<String> ftl = new FastThreadLocal<>();
