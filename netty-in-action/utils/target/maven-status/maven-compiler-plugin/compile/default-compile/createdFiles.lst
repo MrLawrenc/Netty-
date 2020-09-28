@@ -1,0 +1,4 @@
+nia\util\BogusTrustManagerFactory.class
+nia\util\BogusKeyStore.class
+nia\util\BogusTrustManagerFactory$1.class
+nia\util\BogusSslContextFactory.class

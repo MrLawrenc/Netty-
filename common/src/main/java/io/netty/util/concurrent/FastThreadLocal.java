@@ -40,6 +40,12 @@ import java.util.Set;
  *
  * @param <V> the type of the thread-local variable
  * @see ThreadLocal
+ * 表明了几件事：
+ * <pre>
+ *     1. 是ThreadLocal变种，配合FastThreadLocalThread访问获取更好性能
+ *     2. DefaultThreadFactory创建的线程均是FastThreadLocalThread
+ *     3. 非FastThreadLocalThread线程来访问FastThreadLocal，均回退到常规ThreadLocal访问
+ * </pre>
  */
 public class FastThreadLocal<V> {
 
@@ -63,7 +69,7 @@ public class FastThreadLocal<V> {
                 Set<FastThreadLocal<?>> variablesToRemove = (Set<FastThreadLocal<?>>) v;
                 FastThreadLocal<?>[] variablesToRemoveArray =
                         variablesToRemove.toArray(new FastThreadLocal[0]);
-                for (FastThreadLocal<?> tlv: variablesToRemoveArray) {
+                for (FastThreadLocal<?> tlv : variablesToRemoveArray) {
                     tlv.remove(threadLocalMap);
                 }
             }
@@ -188,6 +194,7 @@ public class FastThreadLocal<V> {
      * Set the value for the current thread.
      */
     public final void set(V value) {
+        //这个else分支有必要吗？
         if (value != InternalThreadLocalMap.UNSET) {
             InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
             setKnownNotUnset(threadLocalMap, value);
@@ -230,6 +237,7 @@ public class FastThreadLocal<V> {
     public final boolean isSet(InternalThreadLocalMap threadLocalMap) {
         return threadLocalMap != null && threadLocalMap.isIndexedVariableSet(index);
     }
+
     /**
      * Sets the value to uninitialized; a proceeding call to get() will trigger a call to initialValue().
      */
@@ -272,5 +280,6 @@ public class FastThreadLocal<V> {
      * is not guaranteed to be called when the `Thread` completes which means you can not depend on this for
      * cleanup of the resources in the case of `Thread` completion.
      */
-    protected void onRemoval(@SuppressWarnings("UnusedParameters") V value) throws Exception { }
+    protected void onRemoval(@SuppressWarnings("UnusedParameters") V value) throws Exception {
+    }
 }

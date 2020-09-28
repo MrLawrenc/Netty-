@@ -1,0 +1,13 @@
+nia\chapter10\ToIntegerDecoder.class
+nia\chapter10\WebSocketConvertHandler$MyWebSocketFrame$FrameType.class
+nia\chapter10\IntegerToStringEncoder.class
+nia\chapter10\WebSocketConvertHandler$MyWebSocketFrame.class
+nia\chapter10\ShortToByteEncoder.class
+nia\chapter10\CharToByteEncoder.class
+nia\chapter10\WebSocketConvertHandler.class
+nia\chapter10\CombinedByteCharCodec.class
+nia\chapter10\IntegerToStringDecoder.class
+nia\chapter10\SafeByteToMessageDecoder.class
+nia\chapter10\ToIntegerDecoder2.class
+nia\chapter10\WebSocketConvertHandler$1.class
+nia\chapter10\ByteToCharDecoder.class

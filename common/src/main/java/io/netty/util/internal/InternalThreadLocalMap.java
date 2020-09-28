@@ -70,6 +70,7 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         if (thread instanceof FastThreadLocalThread) {
             return fastGet((FastThreadLocalThread) thread);
         } else {
+            //曲线救国  兼兼容非FastThreadLocalThread线程使用的情况
             return slowGet();
         }
     }
@@ -119,6 +120,10 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     }
 
     // Cache line padding (must be public)
+    // 和其余jdk或者框架一样，作为一个缓存行填充，消除伪共享(该类至少占用128字节)
+    // 可以使用Java Object Layout (JOL) IDEA插件查看内存占用情况
+    // 代码计算内存占用可以使用javaagent提供的{sun.instrument.InstrumentationImpl#getObjectSize()}方法
+    // 或者
     // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes.
     public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8, rp9;
 
