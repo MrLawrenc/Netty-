@@ -41,7 +41,12 @@ mainframer
 # exclude docker-sync stuff
 .docker-sync
 */.docker-sync
-
+mvnw.cmd
+mvnw
+.fbprefs
+.github
+.gitattributes
+.mvn
 # exclude vscode files
 .vscode/
 *.factorypath
