@@ -81,6 +81,7 @@ public abstract class ObjectPool<T> {
 
         @Override
         public T get() {
+            //查看回收站，复用
             return recycler.get();
         }
     }

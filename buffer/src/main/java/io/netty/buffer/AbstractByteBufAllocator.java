@@ -16,12 +16,12 @@
 
 package io.netty.buffer;
 
-import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
-
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakTracker;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
+
+import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
 
 /**
  * Skeletal {@link ByteBufAllocator} implementation to extend.
@@ -170,6 +170,8 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
 
     @Override
     public ByteBuf directBuffer() {
+        //DEFAULT_INITIAL_CAPACITY = 256;
+        //DEFAULT_MAX_CAPACITY = Integer.MAX_VALUE;
         return directBuffer(DEFAULT_INITIAL_CAPACITY, DEFAULT_MAX_CAPACITY);
     }
 
