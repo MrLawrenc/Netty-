@@ -67,6 +67,8 @@ public class FastThreadLocal<V> {
             if (v != null && v != InternalThreadLocalMap.UNSET) {
                 @SuppressWarnings("unchecked")
                 Set<FastThreadLocal<?>> variablesToRemove = (Set<FastThreadLocal<?>>) v;
+                //????????idx=0处的set是否有存在的必要(removeall直接删除InternalThreadLocalMap)；若存在为什么要用set（）；
+                // 为什么要转为数组（toarry复制,java.util.IdentityHashMap.KeySet.toArray(T[])复写了复制逻辑）再循环（如果是set则迭代器，数组则for）
                 FastThreadLocal<?>[] variablesToRemoveArray =
                         variablesToRemove.toArray(new FastThreadLocal[0]);
                 for (FastThreadLocal<?> tlv : variablesToRemoveArray) {
@@ -105,6 +107,7 @@ public class FastThreadLocal<V> {
         Object v = threadLocalMap.indexedVariable(variablesToRemoveIndex);
         Set<FastThreadLocal<?>> variablesToRemove;
         if (v == InternalThreadLocalMap.UNSET || v == null) {
+            //使用IdentityHashMap确保key FTL不会出现hash冲突
             variablesToRemove = Collections.newSetFromMap(new IdentityHashMap<FastThreadLocal<?>, Boolean>());
             threadLocalMap.setIndexedVariable(variablesToRemoveIndex, variablesToRemove);
         } else {
@@ -219,6 +222,7 @@ public class FastThreadLocal<V> {
      */
     private void setKnownNotUnset(InternalThreadLocalMap threadLocalMap, V value) {
         if (threadLocalMap.setIndexedVariable(index, value)) {
+            //初始化索引0处的一个待移除集合  Set<FastThreadLocal<?>>
             addToVariablesToRemove(threadLocalMap, this);
         }
     }

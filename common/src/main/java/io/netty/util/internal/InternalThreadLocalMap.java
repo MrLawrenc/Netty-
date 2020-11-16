@@ -125,6 +125,7 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     // 代码计算内存占用可以使用javaagent提供的{sun.instrument.InstrumentationImpl#getObjectSize()}方法
     // 或者
     // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes.
+    //@Contended
     public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8, rp9;
 
     private InternalThreadLocalMap() {
@@ -294,21 +295,6 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         return index < lookup.length? lookup[index] : UNSET;
     }
 
-    /**
-     * @return {@code true} if and only if a new thread-local variable has been created
-     */
-    public boolean setIndexedVariable(int index, Object value) {
-        Object[] lookup = indexedVariables;
-        if (index < lookup.length) {
-            Object oldValue = lookup[index];
-            lookup[index] = value;
-            return oldValue == UNSET;
-        } else {
-            expandIndexedVariableTableAndSet(index, value);
-            return true;
-        }
-    }
-
     private void expandIndexedVariableTableAndSet(int index, Object value) {
         Object[] oldArray = indexedVariables;
         final int oldCapacity = oldArray.length;
@@ -324,6 +310,22 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         Arrays.fill(newArray, oldCapacity, newArray.length, UNSET);
         newArray[index] = value;
         indexedVariables = newArray;
+    }
+
+    /**
+     * @return {@code true} if and only if a new thread-local variable has been created
+     */
+    public boolean setIndexedVariable(int index, Object value) {
+        Object[] lookup = indexedVariables;
+        if (index < lookup.length) {
+            Object oldValue = lookup[index];
+            lookup[index] = value;
+            //第一次插入则是true
+            return oldValue == UNSET;
+        } else {
+            expandIndexedVariableTableAndSet(index, value);
+            return true;
+        }
     }
 
     public Object removeIndexedVariable(int index) {
