@@ -158,12 +158,18 @@ public abstract class Recycler<T> {
         if (maxCapacityPerThread == 0) {
             return newObject((Handle<T>) NOOP_HANDLE);
         }
+        // 获取线程栈 每个线程都有一个栈
         Stack<T> stack = threadLocal.get();
+        //出栈一个handle
         DefaultHandle<T> handle = stack.pop();
         if (handle == null) {
+            // newObject 由调用者实现, 不同的 ByteBuf 创建各自不同的 ByteBuf, 需要由创建者实现
+            // handle.value is ByteBuf, 从上面跟下来, 所以这里是 PooledUnsafeDirectByteBuf
+            //具体调用 io.netty.util.internal.ObjectPool.ObjectCreator.newObject io.netty.buffer.PooledUnsafeDirectByteBuf.RECYCLER
             handle = stack.newHandle();
             handle.value = newObject(handle);
         }
+        // 返回一个 ByteBuf子类 即PooledUnsafeDirectByteBuf
         return (T) handle.value;
     }
 
@@ -542,6 +548,7 @@ public abstract class Recycler<T> {
                 }
             }
             size --;
+            // 取出栈顶的 handle
             DefaultHandle ret = elements[size];
             elements[size] = null;
             // As we already set the element[size] to null we also need to store the updated size before we do
@@ -552,6 +559,7 @@ public abstract class Recycler<T> {
             if (ret.lastRecycledId != ret.recycleId) {
                 throw new IllegalStateException("recycled multiple times");
             }
+            // 重置这个 handle 的信息
             ret.recycleId = 0;
             ret.lastRecycledId = 0;
             return ret;

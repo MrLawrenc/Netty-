@@ -142,7 +142,10 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     abstract boolean isDirect();
 
+    //1  directArena.allocate(cache, initialCapacity, maxCapacity);
     PooledByteBuf<T> allocate(PoolThreadCache cache, int reqCapacity, int maxCapacity) {
+        // newByteBuf(maxCapacity); 有两种实现, directArena 和 heapArena
+        // Pool 的为在 recycle 中重用一个 ByteBuf
         PooledByteBuf<T> buf = newByteBuf(maxCapacity);
         allocate(cache, buf, reqCapacity);
         return buf;
@@ -767,11 +770,15 @@ abstract class PoolArena<T> implements PoolArenaMetric {
             }
         }
 
+        //返回直接内存的一个池化实现
         @Override
         protected PooledByteBuf<ByteBuffer> newByteBuf(int maxCapacity) {
+            // 优先使用 PooledUnsafeDirect
             if (HAS_UNSAFE) {
+                // PooledUnsafeDirect创建
                 return PooledUnsafeDirectByteBuf.newInstance(maxCapacity);
             } else {
+                // PooledDirect
                 return PooledDirectByteBuf.newInstance(maxCapacity);
             }
         }
