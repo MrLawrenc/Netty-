@@ -126,6 +126,7 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     // 或者
     // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes.
     //@Contended
+    //https://github.com/netty/netty/issues/9284 关于填充数量的讨论
     public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8, rp9;
 
     private InternalThreadLocalMap() {

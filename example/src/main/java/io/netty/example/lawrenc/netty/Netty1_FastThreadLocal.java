@@ -28,36 +28,6 @@ import org.junit.Test;
  */
 public class Netty1_FastThreadLocal {
 
-    ThreadLocal<Integer> local1 = ThreadLocal.withInitial(() -> 1024);
-    ThreadLocal<Integer> local2 = new ThreadLocal<>() {
-        @Override
-        protected Integer initialValue() {
-            return 28;
-        }
-    };
-
-    /**
-     * <pre>
-     *     1.如果整个数组都冲突则可能导致死循环（当然概率很小）。会发生?
-     *     2.启发式清理为什么会发现了容量会左移（扩大两倍）？
-     * </pre>
-     */
-    @Test
-    public void threadLocal() throws Exception {
-        System.out.println("local1 init:" + local1.get());
-        System.out.println("local2 init:" + local2.get());
-        System.out.println("########################################");
-        Thread thread = new Thread(() -> {
-            local1.set(9527);
-            local2.set(2145);
-            System.out.println("local1 get:" + local1.get());
-            System.out.println("local2 get:" + local2.get());
-        });
-        thread.start();
-        thread.join();
-
-    }
-
 
     /**
      * {@link io.netty.microbench.concurrent.FastThreadLocalFastPathBenchmark}
