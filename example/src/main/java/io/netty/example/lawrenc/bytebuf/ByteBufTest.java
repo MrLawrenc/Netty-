@@ -24,6 +24,7 @@ public class ByteBufTest {
     /**
      * PooledUnsafeDirectByteBuf 源码学习
      * <p>
+     * JEMalloc分配算法
      * <p>
      * https://www.cnblogs.com/wuhaonan/p/11386835.html
      * <p>

@@ -119,14 +119,16 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
         return nextIndex.get() - 1;
     }
 
+    //InternalThreadLocalMap
     // Cache line padding (must be public)
+    // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes
     // 和其余jdk或者框架一样，作为一个缓存行填充，消除伪共享(该类至少占用128字节)
     // 可以使用Java Object Layout (JOL) IDEA插件查看内存占用情况
     // 代码计算内存占用可以使用javaagent提供的{sun.instrument.InstrumentationImpl#getObjectSize()}方法
     // 或者
-    // With CompressedOops enabled, an instance of this class should occupy at least 128 bytes.
     //@Contended
     //https://github.com/netty/netty/issues/9284 关于填充数量的讨论
+    // <a href=""></a>
     public long rp1, rp2, rp3, rp4, rp5, rp6, rp7, rp8, rp9;
 
     private InternalThreadLocalMap() {

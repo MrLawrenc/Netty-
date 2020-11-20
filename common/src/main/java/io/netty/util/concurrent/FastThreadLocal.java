@@ -67,8 +67,9 @@ public class FastThreadLocal<V> {
             if (v != null && v != InternalThreadLocalMap.UNSET) {
                 @SuppressWarnings("unchecked")
                 Set<FastThreadLocal<?>> variablesToRemove = (Set<FastThreadLocal<?>>) v;
-                //????????idx=0处的set是否有存在的必要(removeall直接删除InternalThreadLocalMap)；若存在为什么要用set（）；
+                //????????idx=0处的set是否有存在的必要(removeall直接删除InternalThreadLocalMap(map里面有空槽))；若存在为什么要用set（）；
                 // 为什么要转为数组（toarry复制,java.util.IdentityHashMap.KeySet.toArray(T[])复写了复制逻辑）再循环（如果是set则迭代器，数组则for）
+                // https://github.com/netty/netty/issues/10599#issuecomment-730283389
                 FastThreadLocal<?>[] variablesToRemoveArray =
                         variablesToRemove.toArray(new FastThreadLocal[0]);
                 for (FastThreadLocal<?> tlv : variablesToRemoveArray) {
