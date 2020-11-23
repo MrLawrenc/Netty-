@@ -16,7 +16,7 @@ import java.util.concurrent.locks.LockSupport;
  *      如何才会出现内存泄漏？如果没有弱引用存在又会是什么情况？
  * </pre>
  * https://xdkxlk.github.io/2018/11/19/ThreadLocal/ 最先看
- *https://www.cnblogs.com/moderate-fish/p/7658926.html
+ * https://www.cnblogs.com/moderate-fish/p/7658926.html
  * https://www.cnblogs.com/hongdada/p/12108611.html
  * @author : MrLawrenc
  * date  2020/8/9 14:50

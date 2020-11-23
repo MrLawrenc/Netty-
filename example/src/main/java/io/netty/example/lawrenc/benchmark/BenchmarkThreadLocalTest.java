@@ -1,4 +1,4 @@
-package io.netty.example.lawrenc.nettytest;
+package io.netty.example.lawrenc.benchmark;
 
 import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;

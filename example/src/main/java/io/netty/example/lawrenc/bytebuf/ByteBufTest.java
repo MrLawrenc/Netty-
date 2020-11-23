@@ -5,8 +5,9 @@ import io.netty.buffer.PooledByteBufAllocator;
 import org.junit.Test;
 
 /**
- * @author hz20035009-逍遥
- * date   2020/10/20 15:01
+ *
+ * @author   MrLawrenc
+ * date  2020/10/20 15:01
  */
 public class ByteBufTest {
 

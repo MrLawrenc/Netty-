@@ -26,27 +26,30 @@ import org.junit.Test;
  * 缓存行以及netty设计疑问 https://juejin.im/post/6844903878870171662
  * <p>
  * 二者的不同点在于“>>”在执行右移操作时，若参与运算的数字为正数，则在高位补0；若为负数，则在高位补1。而“>>>”则不同，无论参与运算的数字为正数或为负数，在执运算时，都会在高位补0。
- *
+ * <p>
  * 左移运算没有有符号和无符号左移动，在左移时，移除高位的同时在低位补0。
  * </p>
  */
+@SuppressWarnings("all")
 public class Netty1_FastThreadLocal {
 
-
-    public  void b(){
-        int index =7;
+    @Test
+    public void resizeTest() {
+        int index = 7;
 
         int newCapacity = index;
-        newCapacity |= newCapacity >>>  1;
-        newCapacity |= newCapacity >>>  2;
-        newCapacity |= newCapacity >>>  4;
-        newCapacity |= newCapacity >>>  8;
+        newCapacity |= newCapacity >>> 1;
+        newCapacity |= newCapacity >>> 2;
+        newCapacity |= newCapacity >>> 4;
+        newCapacity |= newCapacity >>> 8;
         newCapacity |= newCapacity >>> 16;
-        newCapacity ++;
+        newCapacity++;
 
         System.out.println(newCapacity);
     }
-    public  void a(){
+
+    @Test
+    public void moveTest() {
         System.out.println(8 >>> 1);
         System.out.println(8 >> 1);
         /**
