@@ -101,8 +101,7 @@ public class ThreadLocalTest {
 22:15:13.065 [main] INFO  i.n.e.lawrenc.netty.ThreadLocalTest - change local value
 22:15:13.065 [Thread-0] INFO  i.n.e.lawrenc.netty.ThreadLocalTest - local1 value(2):1024
 22:15:13.065 [Thread-0] INFO  i.n.e.lawrenc.netty.ThreadLocalTest - local2 value(2):28
-22:15:13.065 [main] INFO  i.n.e.lawrenc.netty.ThreadLocalTest - ########################################
-    
+22:15:13.065 [main] INFO  i.n.e.lawrenc.netty.ThreadLocalTest - ######################################## 
 ```
 
 ##### ThreadLocal#set
@@ -125,7 +124,7 @@ public class ThreadLocalTest {
   }
   ```
 
-  首先获取当前线程对象，再根据线程对象获取ThreadLocalMap，该值是线程的一个成员变量
+  首先获取当前线程对象，再根据线程对象t获取ThreadLocalMap，该值是线程的一个成员变量
 
   ```java
   public class Thread implements Runnable {
@@ -143,7 +142,7 @@ public class ThreadLocalTest {
 
   inheritableThreadLocals这个变量也是ThreadLocalMap，配合InheritableThreadLocal使用，稍后会说到。
 
-  可以看见首次调用set时，获取到的map是null，因此会进入 createMap(t, value);方法
+  首次调用set时，获取到的map是null，因此会进入 createMap(t, value);方法
 
   ```java
   void createMap(Thread t, T firstValue) {
@@ -161,9 +160,14 @@ public class ThreadLocalTest {
       size = 1;
       setThreshold(INITIAL_CAPACITY);
   }
+  
+  //阈值设定
+  private void setThreshold(int len) {
+      threshold = len * 2 / 3;
+  }
   ```
 
-  ThreadLocalMap里面维护了一个Entry数组table，即是给table这个数组初始化，并设值
+  ThreadLocalMap里面维护了一个Entry数组table，即是给table这个数组初始化，并设值。同时根据threadLocal对象的threadLocalHashCode和初始容量-1进行hash，得到firstValue的落地位置。接着看看Entry的结构
 
   ```java
   static class ThreadLocalMap {
@@ -183,7 +187,7 @@ public class ThreadLocalTest {
   }
   ```
 
-  值得注意的是Entry是由key，value构成的，且key是一个ThreadLocal的弱引用（当没有强引用指向弱引用时，发生gc会立即回收弱引用对象）。
+  Entry是由key，value构成的，且key是一个ThreadLocal的弱引用（当没有强引用指向弱引用时，发生gc会立即回收弱引用对象）。
 
   其实到此为止第一次赋值就结束了，当我们向ThreadLocal对象里面存入了一个值时，该值和线程Thread绑定，而Thread又和内部成员变量ThreadLocalMap绑定，ThreadLocalMap内部存储了一个Entry数组，Entry是由弱引用（即当前ThreadLocal对象）作为key，我们存入的值作为value。各个依赖关系如下:
 
@@ -201,7 +205,7 @@ public class ThreadLocalTest {
    private void set(ThreadLocal<?> key, Object value) {
        Entry[] tab = table;
        int len = tab.length;
-       //计算当前value应该存放的位置
+       //hash计算当前value应该存放的位置
        int i = key.threadLocalHashCode & (len-1);
   
        //若是当前位置已经存在元素，则逐步搜索（链寻址），直到元素为空就结束循环
@@ -222,15 +226,25 @@ public class ThreadLocalTest {
   	//在for循环中没返回，证明在当前i处entry是为null的，因此直接进行赋值
        tab[i] = new Entry(key, value);
        int sz = ++size;
-       //启发式清理之后判断是否需要扩容
+       //启发式清理之后判断是否需要扩容 sz >= threshold为第一次阈值判断
        if (!cleanSomeSlots(i, sz) && sz >= threshold)
            rehash();
    }
   ```
 
+  这里继续跟set方法之前看几个小细节
+
+  1. 这里 int i = key.threadLocalHashCode & (len-1);计算索引用的是魔数和len-1做与，使 `hashcode` 均匀的分布在大小为 2 的 N 次方的数组里
+  2. for循环即是一个链寻址寻址的过程，如果在寻址过程中发现被回收的key，则顺便清理这个“脏槽”
+  3.  if (k == null)成立的条件是弱引用的threalLocal对象被回收，如要被回收，则必须我们手动将threadlocal对象设为null，或者让其存在局部变量中，而通常我们是给的static的静态变量，此时threadlocal在正常情况下是永远无法被回收的，因为这个强引用一直存在整个类的生命周期。
+
+  
+
+  
+
   set方法有几个需要注意的地方
 
-  1.  计算索引i的时候使用到了魔数0x61c88647（1640531527），散列程度高，最后有测试。
+  1.  计算索引i的时候使用到了魔数0x61c88647（值为1640531527，int32的黄金分割比，也符合斐波那契数列），散列程度高，它可以使 `hashcode` 均匀的分布在大小为 2 的 N 次方的数组里。最后有测试。
 
      ```java
      int i = key.threadLocalHashCode & (len-1);
