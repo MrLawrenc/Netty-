@@ -2,7 +2,6 @@ package io.netty.example.lawrenc;
 
 import java.security.InvalidParameterException;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -25,14 +24,14 @@ public class DynamicThreadPoolManager {
             DynamicThreadPool defaultPool = new DynamicThreadPool(Runtime.getRuntime().availableProcessors(),
                     Runtime.getRuntime().availableProcessors() << 1,
                     3, TimeUnit.MINUTES
-                    , new ArrayBlockingQueue<>(1024));
+                    , new PoolBlockingQueue<>(1024));
             cachePool.put(DEFAULT_POOL, defaultPool);
         }
     }
 
     public DynamicThreadPoolManager addPool(String name, DynamicThreadPool pool) {
         if (cachePool.containsKey(name)) {
-            throw new InvalidParameterException("a thread pool named " + name + " already exists");
+            throw new InvalidParameterException("this thread pool named " + name + " already exists");
         }
 
         cachePool.put(name, pool);
@@ -47,12 +46,17 @@ public class DynamicThreadPoolManager {
         return cachePool.get(DEFAULT_POOL);
     }
 
-    public void updateConf(String name, int core) {
+    public void updateConf(String name, int core, int max, int capacity) {
         DynamicThreadPool threadPool = cachePool.get(name);
 
 
-
         threadPool.setCorePoolSize(core);
+        threadPool.setMaximumPoolSize(max);
+
+        if (DynamicThreadPool.isResizeable(threadPool.getQueue())) {
+            PoolBlockingQueue<Runnable> queue = (PoolBlockingQueue<Runnable>) threadPool.getQueue();
+            queue.setCapacity(capacity);
+        }
 
     }
 }
