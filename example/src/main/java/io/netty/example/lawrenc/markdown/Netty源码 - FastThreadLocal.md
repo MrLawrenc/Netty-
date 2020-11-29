@@ -35,7 +35,7 @@ Netty的FastThreadLocal、FastThreadLocalThread和它自身封装的一些并发
 
 ## JDK的ThreadLocal源码
 
-### 过一遍源码
+### 核心方法源码
 
 为了查看源码方便，创建一个简单的ThreadLocal使用demo
 
@@ -216,7 +216,7 @@ public class ThreadLocalTest {
                e.value = value;
                return;
            }
-  		//当key为null时代表该threadLocal被gc回收了，此时做清理相关操作
+  		//当key为null时代表该threadLocal被gc回收了，此时“顺便”做清理相关操作
            if (k == null) {
                //探测式清理
                replaceStaleEntry(key, value, i);
@@ -226,7 +226,7 @@ public class ThreadLocalTest {
   	//在for循环中没返回，证明在当前i处entry是为null的，因此直接进行赋值
        tab[i] = new Entry(key, value);
        int sz = ++size;
-       //启发式清理之后判断是否需要扩容 sz >= threshold为第一次阈值判断
+       //启发式清理之后判断是否需要扩容 sz >= threshold为 第一次（真正扩容阈值小于threshold） 阈值判断
        if (!cleanSomeSlots(i, sz) && sz >= threshold)
            rehash();
    }
@@ -235,283 +235,540 @@ public class ThreadLocalTest {
   这里继续跟set方法之前看几个小细节
 
   1. 这里 int i = key.threadLocalHashCode & (len-1);计算索引用的是魔数和len-1做与，使 `hashcode` 均匀的分布在大小为 2 的 N 次方的数组里
-  2. for循环即是一个链寻址寻址的过程，如果在寻址过程中发现被回收的key，则顺便清理这个“脏槽”
-  3.  if (k == null)成立的条件是弱引用的threalLocal对象被回收，如要被回收，则必须我们手动将threadlocal对象设为null，或者让其存在局部变量中，而通常我们是给的static的静态变量，此时threadlocal在正常情况下是永远无法被回收的，因为这个强引用一直存在整个类的生命周期。
 
-  
-
-  
-
-  set方法有几个需要注意的地方
-
-  1.  计算索引i的时候使用到了魔数0x61c88647（值为1640531527，int32的黄金分割比，也符合斐波那契数列），散列程度高，它可以使 `hashcode` 均匀的分布在大小为 2 的 N 次方的数组里。最后有测试。
+  2. 注意下nextIndex和prevIndex两个方法，它们是环形的，因此个人觉得entry数组更像是一个环形链表。
 
      ```java
-     int i = key.threadLocalHashCode & (len-1);
+             /**
+              * Increment i modulo len.
+              */
+             private static int nextIndex(int i, int len) {
+                 return ((i + 1 < len) ? i + 1 : 0);
+             }
      
-     private final int threadLocalHashCode = nextHashCode();
-     //魔数
-     private static final int HASH_INCREMENT = 0x61c88647;
-     private static int nextHashCode() {
-         return nextHashCode.getAndAdd(HASH_INCREMENT);
-     }
+             /**
+              * Decrement i modulo len.
+              */
+             private static int prevIndex(int i, int len) {
+                 return ((i - 1 >= 0) ? i - 1 : len - 1);
+             }
      ```
 
-  2. 什么时候key才会被gc回收，即什么时候会满足如下条件呢
+  3. for循环即是一个链寻址寻址的过程，如果在寻址过程中发现被回收的key，则顺便清理这个“脏槽”
 
-     ```java
-     if (k == null) {
-         replaceStaleEntry(key, value, i);
-         return;
-     }
-     ```
+  4. if (k == null)成立的条件是弱引用的threalLocal对象被回收，如要被回收，则必须我们手动将threadlocal对象设为null（threadlocal对象创建并set值之后至少存在两个引用，一个是new时候的强引用，一个是threadLocalMap中的弱引用），或者让其存在局部变量中，而通常我们是给的static的静态变量，此时threadlocal在正常情况下是永远无法被回收的，因为这个强引用一直存在整个类的生命周期，则就会导致ThreadLocalMap对象在线程池的情况下会一直存在，set进的不需要使用的数据也得不到清理，因此提倡不需要使用的时候remove显示清除。
 
-     我们知道ThreadLocalMap的key为threadLocal弱引用对象，当我们创建一个ThreadLocal时至少有两个引用指向当前的threadLocal对象，一个是new的强引用，一个就是ThreadLocalMap中的弱引用。当我们使用完一个threadLocal对象之后手动取消强引用，即threadLocal=null，假若没有其他强引用，在下次gc发生时，我们所创建的ThreadLocal对象将被回收，从而导致当前线程的threadLocalMap对象里面的key会存在为null的情况。当然，我们没取消threadLocal对象的强引用会导致map中的key、value一直存在。假若ThreadLocalMap中的key不使用弱引用，且我们使用的线程没有被销毁（线程池），我们手动将我们创建的local对象设为null，我们创建的threadLocal对象仍然会一直存在强引用（在ThreadLocalMap的key中），这就很可能会发生内存泄漏。当然有了弱引用我们没有取消local对象的强引用也可能会导致内存泄漏。
+  接着看set方法，for循环实际就是一个链寻址的过程，遇见hash冲突的就寻找向下一个槽，直到为空或者key相等，就插入/覆盖新值。当然如果链寻址过程中遇见脏槽，会进入清理方法，顺便清除脏数据。
 
-  3. nextIndex和preIndex方法都是环形搜索
+  进入方法replaceStaleEntry，这个方法相对来说有点绕0.0
 
-     ```java
-     private static int nextIndex(int i, int len) {
-         return ((i + 1 < len) ? i + 1 : 0);
-     }
-     private static int prevIndex(int i, int len) {
-         return ((i - 1 >= 0) ? i - 1 : len - 1);
-     }
-     ```
+  ```java
+  /**
+   * 该方法的javadoc说到是清除两个空槽之间的所有数据(被回收key的槽)。注意该方法可能不会清理任何数据
+   */
+  private void replaceStaleEntry(ThreadLocal<?> key, Object value,
+                                 int staleSlot) {
+      Entry[] tab = table;
+      int len = tab.length;
+      Entry e;
+  
+      // Back up to check for prior stale entry in current run.
+      // We clean out whole runs at a time to avoid continual
+      // incremental rehashing due to garbage collector freeing
+      // up refs in bunches (i.e., whenever the collector runs).
+      //staleSlot位置是链寻址发现的第一个脏槽
+      int slotToExpunge = staleSlot;
+      //向前查找，最前面（非空槽）的一个脏槽。可以思考下为什么这里向前搜索，向后可以吗？
+      for (int i = prevIndex(staleSlot, len);
+           (e = tab[i]) != null;
+           i = prevIndex(i, len))
+          if (e.get() == null)
+              slotToExpunge = i;
+  
+      // Find either the key or trailing null slot of run, whichever
+      // occurs first
+      //向下查找，遇空槽结束循环
+      for (int i = nextIndex(staleSlot, len);
+           (e = tab[i]) != null;
+           i = nextIndex(i, len)) {
+          ThreadLocal<?> k = e.get();
+  
+          // If we find key, then we need to swap it
+          // with the stale entry to maintain hash table order.
+          // The newly stale slot, or any other stale slot
+          // encountered above it, can then be sent to expungeStaleEntry
+          // to remove or rehash all of the other entries in run.
+          if (k == key) {
+              e.value = value;
+  			//很重要的一个交换步骤，将staleSlot处脏槽的数据移到此处，将staleSlot处脏槽的数据赋值为新值（staleSlot和i闭区间内的数据都是hash冲突的数据）。目的是更少的rehash（在staleSlot到i之间没有空槽了，就不需要rehash了）
+              tab[i] = tab[staleSlot];
+              tab[staleSlot] = e;
+  
+              // Start expunge at preceding stale entry if it exists
+              //判断之前的向前查找是否找到可脏槽，如果没有，则将最前面的脏槽索引标记为i，即i前面（到非空槽）的所有连续槽里面是没有脏槽存在的
+              if (slotToExpunge == staleSlot)
+                  slotToExpunge = i;
+              //先探测式清理，再启发式清理，部分清理出入的为第一个脏槽索引slotToExpunge，len为entry数组长度
+              cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+              return;
+          }
+  
+          // If we didn't find stale entry on backward scan, the
+          // first stale entry seen while scanning for key is the
+          // first still present in the run.
+          //在向后查找过程中，如果发现脏槽，且之前的向前查找没有找到连续空间内包含的其他槽，则将第一个脏槽其实点标记为当前i，该if至多只会执行一次
+          if (k == null && slotToExpunge == staleSlot)
+              slotToExpunge = i;
+      }
+  
+      // If key not found, put new entry in stale slot
+      //能到这儿，证明该key在连续区间内没有插入过（可能插入被删除了）
+      tab[staleSlot].value = null;
+      tab[staleSlot] = new Entry(key, value);
+  
+      // If there are any other stale entries in run, expunge them
+      //之后，如果是向前找到了其余脏槽，或者在向后链寻址的过程中发现了脏槽，则代表存在脏数据，也会执行探测式清理个启发式清理
+      if (slotToExpunge != staleSlot)
+          cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+  }
+  ```
 
-  4. 还有就是当出现冲突时，会使用开放式探测的方法向下寻找为null的entry，找到之后赋值。
+  这个方法算是ThreadLocal里面比较难理解的地方了，注释里面都详细解释了，下面再详细说说几个关键的地方
 
-  set方法主要分为三种情况
+  1. 第一个迷惑的地方就是向前查找空槽的那个for循环了。这里主要是确定一个连续有值的区间。在staleSlot处是链寻址过程中发现的第一个脏槽，在staleSlot之前的连续非空槽数据可能也是发生过hash冲突，通过链寻址插入的，如果这时候顺便找到之前的空槽（开销小），在之后若是要清理，则会进入清理步骤，将从当前连续区间的第一个脏槽开始清理，连续区间所有脏槽都会被清理rehash。
 
-  - 进入for循环没有返回，或者是没有进入for循环
+  2. 第二个for循环箱后查找就是继续链寻址查找插入位置的逻辑。从第一个空槽staleSlot处开始，如果发现key已存在，则证明已经插入过值了，首先更新值，之后再交换，这个交换是很重要的，可以提高性能。将当前i，即key原来的插入位置的entry交换到staleSlot的空槽位置，空槽移到当前i的位置。此时在slotToExpunge到i处的区间均是”干净的槽“，即没有脏槽。
 
-    1. 若是进入for循环没有返回说明在整个entry数组中没有空位了（**这种情况实际是不存在的**）
+     之后紧跟的if判断向前是否找到了脏槽，如果没有找到，则说明该连续空间的第一个脏槽就是在i处（已经和staleSlot交换过了），之后就是启发式清理了，入参是第一个脏槽位置和数组len，这个我们放到稍后再看。
 
-    2. 没有进入for循环则说明当前索引i处的entry就为null，则直接进行赋值，且size递增
+  3. 在这里的链寻址过程中发现有脏槽，则也会判断之前向前查找是否找到脏槽，如果没有找到也会将第一个脏槽的位置设为当前i。**其实这里和前面的判断给slotToExpunge赋值都是一个目的，使slotToExpunge的值是当前连续区间的第一个脏槽位置，之后在探测式清理的时候就从该处开始清理。**
 
-       ```java
-       tab[i] = new Entry(key, value);
-       int sz = ++size;
-       if (!cleanSomeSlots(i, sz) && sz >= threshold)
-           rehash();
-       ```
+  4. 如果for循环没有结束方法，则证明在连续区间内该key不存在，则将staleSlot处的脏槽的值清理之后再赋值当前需要插入的新值，最后再判断一下是否存在其余脏数据，即判断slotToExpunge和 staleSlot是否相等。
 
-       在完成元素的添加之后会进行一次启发式清理，即调用cleanSomeSlots(i, sz)，当启发式清理了元素（至少清理一个元素）则会返回false，进而就不会进行扩容，若是启发式清理没有清理元素，则会根据当前size和threshold判断是否需要扩容，而threshold的初始化是在创建ThreadLocalMap时设定的，可以看见扩容阈值为len的2/3，即为10。
+  最后看一下探测式清理，注意这个方法里的探测式清理入参都是该连续区间的第一个脏槽索引
 
-       ```java
-       ThreadLocalMap(ThreadLocal<?> firstKey, Object firstValue) {
-           table = new Entry[INITIAL_CAPACITY];
-           int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
-           table[i] = new Entry(firstKey, firstValue);
-           size = 1;
-           setThreshold(INITIAL_CAPACITY);
-       }
-       
-       private void setThreshold(int len) {
-           threshold = len * 2 / 3;
-       }
-       
-       /**
-         * The initial capacity -- MUST be a power of two.
-         */
-       private static final int INITIAL_CAPACITY = 16;
-       ```
+  ```java
+  private int expungeStaleEntry(int staleSlot) {
+      Entry[] tab = table;
+      int len = tab.length;
+  
+      // expunge entry at staleSlot
+      tab[staleSlot].value = null;
+      tab[staleSlot] = null;
+      size--;
+  
+      // Rehash until we encounter null
+      Entry e;
+      int i;
+      for (i = nextIndex(staleSlot, len);
+           (e = tab[i]) != null;
+           i = nextIndex(i, len)) {
+          ThreadLocal<?> k = e.get();
+          if (k == null) {
+              e.value = null;
+              tab[i] = null;
+              size--;
+          } else {
+              int h = k.threadLocalHashCode & (len - 1);
+              if (h != i) {
+                  tab[i] = null;
+  
+                  // Unlike Knuth 6.4 Algorithm R, we must scan until
+                  // null because multiple entries could have been stale.
+                  while (tab[h] != null)
+                      h = nextIndex(h, len);
+                  tab[h] = e;
+              }
+          }
+      }
+      return i;
+  }
+  ```
 
-       进入扩容方法rehash
+  这个探测式清理比较简单，先清理当前连续区间的第一个脏槽，之后从此处开始，向后逐步搜索，如果发现k==null，则清理掉，如果不为null则rehash，重新计算槽位，如果计算出来的槽位不在当前位置，则将当前位置设为null清理，然后从新的地址h处开始链寻址，找到新的槽位插入。如此循环，直到找到第一个空槽null结束，再返回此处索引。
 
-       ```java
-       private void rehash() {
-           //会进行一次清理之后再判断是否需要扩容
-           expungeStaleEntries();
-       
-           // Use lower threshold for doubling to avoid hysteresis
-           if (size >= threshold - threshold / 4)
-               resize();
-       }
-       ```
+  之后看启发式清理，入参为探测式清理发现的第一个null位置和entry长度（扫描控制循环次数）。
 
-       进入expungeStaleEntries方法
+  ```java
+  private boolean cleanSomeSlots(int i, int n) {
+      boolean removed = false;
+      Entry[] tab = table;
+      int len = tab.length;
+      do {
+          i = nextIndex(i, len);
+          Entry e = tab[i];
+          if (e != null && e.get() == null) {
+              n = len;
+              removed = true;
+              i = expungeStaleEntry(i);
+          }
+      } while ( (n >>>= 1) != 0);
+      return removed;
+  }
+  ```
 
-       ```java
-       private void expungeStaleEntries() {
-           Entry[] tab = table;
-           int len = tab.length;
-           for (int j = 0; j < len; j++) {
-               Entry e = tab[j];
-               if (e != null && e.get() == null)
-                   //探测式清理
-                   expungeStaleEntry(j);
-           }
-       }
-       ```
+  从探测式清理返回的第一个空槽位置开始查找，如果遇见脏槽就清理，之后会将n重置为entry长度len，继续循环，直到n递减为0结束。
 
-       从Entry数组的起始位置开始查找，当发现有Entry的key==null时（e是继承了WeakReference<ThreadLocal<?>>的，因此get（）返回的则是对应得弱引用key，若不存在则代表gc回收了），就触发探测式清理。
+  我看到这里有个疑惑，为什么while结束的条件是n为0，n从len开始每次减半，即log2n递减的。
 
-       ```java
-       private int expungeStaleEntry(int staleSlot) {
-           Entry[] tab = table;
-           int len = tab.length;
-       
-           // expunge entry at staleSlot
-           //先将当前位置设为null，便于回收
-           tab[staleSlot].value = null;
-           tab[staleSlot] = null;
-           size--;
-       
-           // Rehash until we encounter null
-           //接下来从此处开始寻找是否有发生过hash冲突的，需要rehash的，并顺便清理其余被gc回收的数据
-           Entry e;
-           int i;
-           for (i = nextIndex(staleSlot, len);
-                (e = tab[i]) != null;
-                i = nextIndex(i, len)) {
-               ThreadLocal<?> k = e.get();
-               if (k == null) {
-                   e.value = null;
-                   tab[i] = null;
-                   size--;
-               } else {
-                  
-                   int h = k.threadLocalHashCode & (len - 1);
-                    //表明该值是出现过hash冲突的
-                   if (h != i) {
-                       //当前位置设为null空槽，便于gc
-                       tab[i] = null;
-       
-                       // Unlike Knuth 6.4 Algorithm R, we must scan until
-                       // null because multiple entries could have been stale.
-                       //继续向后开放寻址，直到找到为null的entry节点
-                       while (tab[h] != null)
-                           h = nextIndex(h, len);
-                       //将之前i处的元素赋值给距离正确索引h最近的一个空槽上（目的也是为了防止内存泄漏）
-                       tab[h] = e;
-                   }
-               }
-           }
-           return i;
-       }
-       ```
+  看了下javadoc的说明：
 
-       探测式清理的入参为key==null的索引。一次探测式清理的示意图如下（**key相同仅代表hash冲突了，值并不同**）
+  **使用对数log2n简单、快速、运行效果较好，如果增加查找次数，或者减少都不太好**
 
-       ![image](https://lmy25.wang/upload/2020/08/image-41f8bf55de564383b974687595312501.png)
+  也引用下别的博主的解释，大致和官方说的差不多：
 
-       可以试想下，假设不重新计算hash值，判断是否发生过冲突，并且重新寻址会发生什么？
+  主要用于扫描控制（scan control），从while中是通过n来进行条件判断的说明n就是用来控制扫描趟数（循环次数）的。在扫描过程中，如果没有遇到脏entry就整个扫描过程持续log2(n)次，log2(n)的得来是因为n >>>= 1，每次n右移一位相当于n除以2。
+  如果在扫描过程中遇到脏entry的话就会令n为当前hash表的长度（n=len），再扫描log2(n)趟，注意此时n增加无非就是多增加了循环次数从而通过nextIndex往后搜索的范围扩大，示意图如下
+  ![upload successful](https://lmy25.wang/Netty%E5%9B%BE%E5%BA%8A/%E5%90%AF%E5%8F%91%E5%BC%8F%E6%B8%85%E7%90%86.png)
+  按照n的初始值，搜索范围为黑线，当遇到了脏entry，此时n变成了哈希数组的长度（n取值增大），搜索范围log2(n)增大，红线表示。如果在整个搜索过程没遇到脏entry的话，搜索结束，采用这种方式的主要是用于时间效率上的平衡。
 
-       进行一次探测式清理之后槽位分布如下
+  最后还剩一点就是在set的第一个for循环链寻址过程中遇见null的槽之后的处理逻辑
 
-       ![image](https://lmy25.wang/upload/2020/08/image-94f83235b1224c7c9dcbfc304ccf0109.png)
+  ```java
+  tab[i] = new Entry(key, value);
+  int sz = ++size;
+  if (!cleanSomeSlots(i, sz) && sz >= threshold)
+      rehash();
+  
+  ---
+  //第一次初始的时候会赋值阈值
+  private void setThreshold(int len) {
+      threshold = len * 2 / 3;
+  }
+  ```
 
-       假设再次插入一个值，该数据和index=6的key相同，则计算出来的索引位置也在k2，由于k2的索引位置在index=3处，则开放寻址会定位到index=5的地方，在index=5插入新数据，此时会出现index=5和index=6处的key相同，但是占用了两个槽位，且在index=6处的槽位永远不会回收，从而造成内存泄漏。
+  在空槽设值之后如果启发式清理成功，且当前容量大于阈值2/3*len，则会rehash
 
-  - 进入for循环，满足 if (k == key)
+  这里需要注意下rehash实际的条件如下
 
-    这种情况比较简单，当key相同，说明是在同一个线程中重复赋值，则直接覆盖value即可。
+  ```java
+  private void rehash() {
+      expungeStaleEntries();
+  
+      // Use lower threshold for doubling to avoid hysteresis
+      if (size >= threshold - threshold / 4)
+          resize();
+  }
+  ```
 
-  - 进入for循环，满足k == null
+  在执行探测式清理之后数据量大于等于容量的一半之后就会真正的resize扩容，扩容比较简单，可以简要看看。
 
-    若key==null，则证明该key被gc回收了。当我们使用完threadlocal变量之后，将其废弃设为null，则new出来的强引用就没了，剩下的只有Entry中的弱引用key，只要发生gc，该key所对应的的threadlocal就会被回收。
+  注意阈值和容量都是int，在除以分数时会丢弃小数，假设len=16，则threshold=10，进而实际扩容阈值是10-10/4=8，为len的一半。
 
-    当key==null会先处理失效的key此处的entry。便于gc回收
+  ---
 
-    ```java
-    //staleSlot为失效key的槽位位置
-    private void replaceStaleEntry(ThreadLocal<?> key, Object value,
-                                   int staleSlot) {
-        Entry[] tab = table;
-        int len = tab.length;
-        Entry e;
-        int slotToExpunge = staleSlot;
-        //1.向前搜索
-        for (int i = prevIndex(staleSlot, len); (e = tab[i]) != null;  i = prevIndex(i, len))
-            if (e.get() == null)
-                slotToExpunge = i;
-    
-        //2.向后搜索
-        for (int i = nextIndex(staleSlot, len); (e = tab[i]) != null;  i = nextIndex(i, len)) {
-            ThreadLocal<?> k = e.get();
-    
-            // 找到相同的key，则覆盖value，之后再清理
-            if (k == key) {
-                e.value = value;
-    
-                tab[i] = tab[staleSlot];
-                tab[staleSlot] = e;
-    
-                // 判断是否存在其余被回收的key
-                if (slotToExpunge == staleSlot)
-                    slotToExpunge = i;
-                //先完成全量的探测式清理，再完成启发式清理
-                cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
-                return;
-            }
-    
-            if (k == null && slotToExpunge == staleSlot)
-                slotToExpunge = i;
-        }
-    
-        //3.如果以上没有赋值成功，则将当前被回收key处的槽位重新赋新值
-        tab[staleSlot].value = null;
-        tab[staleSlot] = new Entry(key, value);
-    
-        //先完成全量的探测式清理，再完成启发式清理
-        // If there are any other stale entries in run, expunge them
-        if (slotToExpunge != staleSlot)
-            cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+  至此，set方法就已经全部走完了，关键的就是链寻址和清理逻辑，仔细想想还是很好懂的。
+
+##### ThreadLocal#get
+
+get方法比较简单，需要注意的是在getEntry拿不到数据的时候，会链寻址查找，过程中发现脏槽也会清理
+
+```java
+private Entry getEntry(ThreadLocal<?> key) {
+    int i = key.threadLocalHashCode & (table.length - 1);
+    Entry e = table[i];
+    if (e != null && e.get() == key)
+        return e;
+    else
+        return getEntryAfterMiss(key, i, e);
+}
+
+//链寻址，过程中发现脏槽也清理
+private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
+    Entry[] tab = table;
+    int len = tab.length;
+
+    while (e != null) {
+        ThreadLocal<?> k = e.get();
+        if (k == key)
+            return e;
+        if (k == null)
+            expungeStaleEntry(i);
+        else
+            i = nextIndex(i, len);
+        e = tab[i];
     }
-    ```
+    return null;
+}
+```
 
-    以上大致分为三步
+##### ThreadLocal#remove
 
-    1. 首先向前环形搜索，寻找entry的key为null的位置，即被回收的位置，找到之后将索引赋值给slotToExpunge。直到找到entry==null的位置才结束。
+remove方法同样也比较简单，调用的是ThreadLocalMap的remove方法
 
-    2. 之后向后环形搜索，也是直到找到entry==null的位置才结束。在寻找过程中，若发现key有相同的（即第一次插入k，v的时候索引是staleSlot，但是staleSlot位置处原来有数据，因此插入的数据会开放寻址到当前位置，即i处插入），则**交换位置**。将当前位置i处的entry更改为已经被回收的staleSlot处的entry，将staleSlot处的entry更改为i处entry（这个很重要）。
+```java
+private void remove(ThreadLocal<?> key) {
+    Entry[] tab = table;
+    int len = tab.length;
+    int i = key.threadLocalHashCode & (len-1);
+    for (Entry e = tab[i];
+         e != null;
+         e = tab[i = nextIndex(i, len)]) {
+        if (e.get() == key) {
+            e.clear();
+            expungeStaleEntry(i);
+            return;
+        }
+    }
+}
+```
 
-       交换位置之后判断slotToExpunge == staleSlot，只有在前面寻找其余被回收entry的key的时候才会更改slotToExpunge 的值，因此当没有其余被回收的key时，当前if才满足，随后将slotToExpunge 的值更改为当前索引i（当前索引i已经和staleSlot交换了数据，i此处的数据时无效的，被回收了key的）
+如果清理的是hash冲突链上的某个槽，则会在探测式清理之后rehash
 
-       最后进行一次全量的探测式清理，逻辑和之前的探测式清理同理，会进行rehash判断数据是否需要重新移动槽位。完成之后再进行一次启发式清理，逻辑如下
+### 附
 
-       ```java
-       /**
-        * 启发式地清理slot,
-        * i对应entry是非无效（指向的ThreadLocal没被回收，或者entry本身为空）
-        * n是用于控制控制扫描次数的
-        * 正常情况下如果log n次扫描没有发现无效slot，函数就结束了
-        * 但是如果发现了无效的slot，将n置为table的长度len，做一次连续段的清理
-        * 再从下一个空的slot开始继续扫描
-        * 
-        * 这个函数有两处地方会被调用，一处是插入的时候可能会被调用，另外个是在替换无效slot的时候可能会被调用，
-        * 区别是前者传入的n为元素个数，后者为table的容量
-        */
-       private boolean cleanSomeSlots(int i, int n) {
-           boolean removed = false;
-           Entry[] tab = table;
-           int len = tab.length;
-           do {
-               // i在任何情况下自己都不会是一个无效slot(指向的ThreadLocal没被回收，或者entry本身为空)，所以从下一个开始判断
-               i = nextIndex(i, len);
-               Entry e = tab[i];
-               if (e != null && e.get() == null) {
-                   // 扩大扫描控制因子
-                   n = len;
-                   removed = true;
-                    // 清理一个连续段
-                   i = expungeStaleEntry(i);
-               }
-           } while ( (n >>>= 1) != 0);
-           return removed;
-       }
-       ```
+- 魔数
 
-    3. 如果for循环没有结束返回，则证明新值没有插入成功，则将此staleSlot处赋值为新值，最后再判断下是否有其余被回收的槽存在，若有则执行清理。
+  ```java
+  //魔数
+  private static final int HASH_INCREMENT = 0x61c88647;
+  ```
 
-    replaceStaleEntry()方法整体执行流程如下示意图:
+- 
 
-    ![image](https://lmy25.wang/upload/2020/08/image-7f667dc51a854213b60fb7f565e98287.png)
-    
-    5. 可以看出来，threadlocal在每次set时都会检测是否需要清理，不过还是建议手动remove，以防内存泄漏。
-    6. 
 
+
+
+
+
+
+
+
+---
+
+以下废弃
+
+set方法主要分为三种情况
+
+- 进入for循环没有返回，或者是没有进入for循环
+
+  1. 若是进入for循环没有返回说明在整个entry数组中没有空位了（**这种情况实际是不存在的**）
+
+  2. 没有进入for循环则说明当前索引i处的entry就为null，则直接进行赋值，且size递增
+
+     ```java
+     tab[i] = new Entry(key, value);
+     int sz = ++size;
+     if (!cleanSomeSlots(i, sz) && sz >= threshold)
+         rehash();
+     ```
+
+     在完成元素的添加之后会进行一次启发式清理，即调用cleanSomeSlots(i, sz)，当启发式清理了元素（至少清理一个元素）则会返回false，进而就不会进行扩容，若是启发式清理没有清理元素，则会根据当前size和threshold判断是否需要扩容，而threshold的初始化是在创建ThreadLocalMap时设定的，可以看见扩容阈值为len的2/3，即为10。
+
+     ```java
+     ThreadLocalMap(ThreadLocal<?> firstKey, Object firstValue) {
+         table = new Entry[INITIAL_CAPACITY];
+         int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
+         table[i] = new Entry(firstKey, firstValue);
+         size = 1;
+         setThreshold(INITIAL_CAPACITY);
+     }
+     
+     private void setThreshold(int len) {
+         threshold = len * 2 / 3;
+     }
+     
+     /**
+       * The initial capacity -- MUST be a power of two.
+       */
+     private static final int INITIAL_CAPACITY = 16;
+     ```
+
+     进入扩容方法rehash
+
+     ```java
+     private void rehash() {
+         //会进行一次清理之后再判断是否需要扩容
+         expungeStaleEntries();
+     
+         // Use lower threshold for doubling to avoid hysteresis
+         if (size >= threshold - threshold / 4)
+             resize();
+     }
+     ```
+
+     进入expungeStaleEntries方法
+
+     ```java
+     private void expungeStaleEntries() {
+         Entry[] tab = table;
+         int len = tab.length;
+         for (int j = 0; j < len; j++) {
+             Entry e = tab[j];
+             if (e != null && e.get() == null)
+                 //探测式清理
+                 expungeStaleEntry(j);
+         }
+     }
+     ```
+
+     从Entry数组的起始位置开始查找，当发现有Entry的key==null时（e是继承了WeakReference<ThreadLocal<?>>的，因此get（）返回的则是对应得弱引用key，若不存在则代表gc回收了），就触发探测式清理。
+
+     ```java
+     private int expungeStaleEntry(int staleSlot) {
+         Entry[] tab = table;
+         int len = tab.length;
+     
+         // expunge entry at staleSlot
+         //先将当前位置设为null，便于回收
+         tab[staleSlot].value = null;
+         tab[staleSlot] = null;
+         size--;
+     
+         // Rehash until we encounter null
+         //接下来从此处开始寻找是否有发生过hash冲突的，需要rehash的，并顺便清理其余被gc回收的数据
+         Entry e;
+         int i;
+         for (i = nextIndex(staleSlot, len);
+              (e = tab[i]) != null;
+              i = nextIndex(i, len)) {
+             ThreadLocal<?> k = e.get();
+             if (k == null) {
+                 e.value = null;
+                 tab[i] = null;
+                 size--;
+             } else {
+                
+                 int h = k.threadLocalHashCode & (len - 1);
+                  //表明该值是出现过hash冲突的
+                 if (h != i) {
+                     //当前位置设为null空槽，便于gc
+                     tab[i] = null;
+     
+                     // Unlike Knuth 6.4 Algorithm R, we must scan until
+                     // null because multiple entries could have been stale.
+                     //继续向后开放寻址，直到找到为null的entry节点
+                     while (tab[h] != null)
+                         h = nextIndex(h, len);
+                     //将之前i处的元素赋值给距离正确索引h最近的一个空槽上（目的也是为了防止内存泄漏）
+                     tab[h] = e;
+                 }
+             }
+         }
+         return i;
+     }
+     ```
+
+     探测式清理的入参为key==null的索引。一次探测式清理的示意图如下（**key相同仅代表hash冲突了，值并不同**）
+
+     ![image](https://lmy25.wang/upload/2020/08/image-41f8bf55de564383b974687595312501.png)
+
+     可以试想下，假设不重新计算hash值，判断是否发生过冲突，并且重新寻址会发生什么？
+
+     进行一次探测式清理之后槽位分布如下
+
+     ![image](https://lmy25.wang/upload/2020/08/image-94f83235b1224c7c9dcbfc304ccf0109.png)
+
+     假设再次插入一个值，该数据和index=6的key相同，则计算出来的索引位置也在k2，由于k2的索引位置在index=3处，则开放寻址会定位到index=5的地方，在index=5插入新数据，此时会出现index=5和index=6处的key相同，但是占用了两个槽位，且在index=6处的槽位永远不会回收，从而造成内存泄漏。
+
+- 进入for循环，满足 if (k == key)
+
+  这种情况比较简单，当key相同，说明是在同一个线程中重复赋值，则直接覆盖value即可。
+
+- 进入for循环，满足k == null
+
+  若key==null，则证明该key被gc回收了。当我们使用完threadlocal变量之后，将其废弃设为null，则new出来的强引用就没了，剩下的只有Entry中的弱引用key，只要发生gc，该key所对应的的threadlocal就会被回收。
+
+  当key==null会先处理失效的key此处的entry。便于gc回收
+
+  ```java
+  //staleSlot为失效key的槽位位置
+  private void replaceStaleEntry(ThreadLocal<?> key, Object value,
+                                 int staleSlot) {
+      Entry[] tab = table;
+      int len = tab.length;
+      Entry e;
+      int slotToExpunge = staleSlot;
+      //1.向前搜索
+      for (int i = prevIndex(staleSlot, len); (e = tab[i]) != null;  i = prevIndex(i, len))
+          if (e.get() == null)
+              slotToExpunge = i;
+  
+      //2.向后搜索
+      for (int i = nextIndex(staleSlot, len); (e = tab[i]) != null;  i = nextIndex(i, len)) {
+          ThreadLocal<?> k = e.get();
+  
+          // 找到相同的key，则覆盖value，之后再清理
+          if (k == key) {
+              e.value = value;
+  
+              tab[i] = tab[staleSlot];
+              tab[staleSlot] = e;
+  
+              // 判断是否存在其余被回收的key
+              if (slotToExpunge == staleSlot)
+                  slotToExpunge = i;
+              //先完成全量的探测式清理，再完成启发式清理
+              cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+              return;
+          }
+  
+          if (k == null && slotToExpunge == staleSlot)
+              slotToExpunge = i;
+      }
+  
+      //3.如果以上没有赋值成功，则将当前被回收key处的槽位重新赋新值
+      tab[staleSlot].value = null;
+      tab[staleSlot] = new Entry(key, value);
+  
+      //先完成全量的探测式清理，再完成启发式清理
+      // If there are any other stale entries in run, expunge them
+      if (slotToExpunge != staleSlot)
+          cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+  }
+  ```
+
+  以上大致分为三步
+
+  1. 首先向前环形搜索，寻找entry的key为null的位置，即被回收的位置，找到之后将索引赋值给slotToExpunge。直到找到entry==null的位置才结束。
+
+  2. 之后向后环形搜索，也是直到找到entry==null的位置才结束。在寻找过程中，若发现key有相同的（即第一次插入k，v的时候索引是staleSlot，但是staleSlot位置处原来有数据，因此插入的数据会开放寻址到当前位置，即i处插入），则**交换位置**。将当前位置i处的entry更改为已经被回收的staleSlot处的entry，将staleSlot处的entry更改为i处entry（这个很重要）。
+
+     交换位置之后判断slotToExpunge == staleSlot，只有在前面寻找其余被回收entry的key的时候才会更改slotToExpunge 的值，因此当没有其余被回收的key时，当前if才满足，随后将slotToExpunge 的值更改为当前索引i（当前索引i已经和staleSlot交换了数据，i此处的数据时无效的，被回收了key的）
+
+     最后进行一次全量的探测式清理，逻辑和之前的探测式清理同理，会进行rehash判断数据是否需要重新移动槽位。完成之后再进行一次启发式清理，逻辑如下
+
+     ```java
+     /**
+      * 启发式地清理slot,
+      * i对应entry是非无效（指向的ThreadLocal没被回收，或者entry本身为空）
+      * n是用于控制控制扫描次数的
+      * 正常情况下如果log n次扫描没有发现无效slot，函数就结束了
+      * 但是如果发现了无效的slot，将n置为table的长度len，做一次连续段的清理
+      * 再从下一个空的slot开始继续扫描
+      * 
+      * 这个函数有两处地方会被调用，一处是插入的时候可能会被调用，另外个是在替换无效slot的时候可能会被调用，
+      * 区别是前者传入的n为元素个数，后者为table的容量
+      */
+     private boolean cleanSomeSlots(int i, int n) {
+         boolean removed = false;
+         Entry[] tab = table;
+         int len = tab.length;
+         do {
+             // i在任何情况下自己都不会是一个无效slot(指向的ThreadLocal没被回收，或者entry本身为空)，所以从下一个开始判断
+             i = nextIndex(i, len);
+             Entry e = tab[i];
+             if (e != null && e.get() == null) {
+                 // 扩大扫描控制因子
+                 n = len;
+                 removed = true;
+                  // 清理一个连续段
+                 i = expungeStaleEntry(i);
+             }
+         } while ( (n >>>= 1) != 0);
+         return removed;
+     }
+     ```
+
+  3. 如果for循环没有结束返回，则证明新值没有插入成功，则将此staleSlot处赋值为新值，最后再判断下是否有其余被回收的槽存在，若有则执行清理。
+
+  replaceStaleEntry()方法整体执行流程如下示意图:
+
+  ![image](https://lmy25.wang/upload/2020/08/image-7f667dc51a854213b60fb7f565e98287.png)
+  
+  5. 可以看出来，threadlocal在每次set时都会检测是否需要清理，不过还是建议手动remove，以防内存泄漏。
+  6. 
+  
 - ThreadLocal#get
 
   ```java
@@ -529,9 +786,9 @@ public class ThreadLocalTest {
       return setInitialValue();
   }
   ```
-  
+
   get方法就简单很多了，先拿到线程对于的map，如没有设过值，则设置初始值并返回
-  
+
   ```java
   private T setInitialValue() {
       T value = initialValue();
@@ -548,7 +805,7 @@ public class ThreadLocalTest {
       return value;
   }
   ```
-  
+
 - ThreadLocal#remove
 
   ```java
@@ -560,7 +817,9 @@ public class ThreadLocalTest {
   }
   ```
 
-### 疑问
+---
+
+以上废弃
 
 ### 总结
 
