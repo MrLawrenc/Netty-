@@ -25,7 +25,17 @@ public class DynamicThreadPool extends ThreadPoolExecutor {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, warpQueue(workQueue), threadFactory, handler);
     }
 
-    public static PoolBlockingQueue<Runnable> warpQueue(BlockingQueue<Runnable> workQueue) {
-        return new PoolBlockingQueue<Runnable>(workQueue.size());
+    public static BlockingQueue<Runnable> warpQueue(BlockingQueue<Runnable> workQueue) {
+        if (isResizeable(workQueue)) {
+            return new PoolBlockingQueue<Runnable>(workQueue.size());
+        } else if (workQueue instanceof SynchronousQueue) {
+            return workQueue;
+        } else {
+            throw new IllegalArgumentException("the queue type is not supported");
+        }
+    }
+
+    public static boolean isResizeable(BlockingQueue<Runnable> workQueue) {
+        return workQueue instanceof ArrayBlockingQueue || workQueue instanceof LinkedBlockingQueue;
     }
 }

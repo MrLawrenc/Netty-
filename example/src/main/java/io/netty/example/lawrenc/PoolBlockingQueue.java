@@ -40,6 +40,7 @@ import java.util.function.Predicate;
  * @author Doug Lea
  * @since 1.5
  */
+@SuppressWarnings("all")
 public class PoolBlockingQueue<E> extends AbstractQueue<E>
         implements BlockingQueue<E>, java.io.Serializable {
     private static final long serialVersionUID = -6903933977591709194L;
@@ -107,6 +108,10 @@ public class PoolBlockingQueue<E> extends AbstractQueue<E>
     public PoolBlockingQueue<E> setCapacity(int capacity) {
         this.capacity = capacity;
         return this;
+    }
+
+    public int getCapacity() {
+        return capacity;
     }
 
     /**
