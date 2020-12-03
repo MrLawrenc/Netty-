@@ -1,4 +1,4 @@
-package io.netty.example.lawrenc.netty.juc.clh;
+package io.netty.example.lawrenc.juc.clh;
 
 public class CLHLockTest {
 
