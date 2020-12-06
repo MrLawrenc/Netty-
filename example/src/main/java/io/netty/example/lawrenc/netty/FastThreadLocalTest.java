@@ -31,7 +31,7 @@ import org.junit.Test;
  * </p>
  */
 @SuppressWarnings("all")
-public class Netty1_FastThreadLocal {
+public class FastThreadLocalTest {
 
     @Test
     public void resizeTest() {
@@ -55,7 +55,7 @@ public class Netty1_FastThreadLocal {
         /**
          * <pre>
          *     对于带符号右移,若为负数,则在存储时首位表示符号位,其值为1,表示该值是负数的移位,在移位过程中,高位补1,若符号位是0,表示是正数,在移位过程中高位补零,两者的前提是符号位保持不变:
-         *         对于负数的右移：因为负数在内存中是以补码形式存在的，所有首先根据负数的原码求出负数的补码(符号位不变，其余位按照原码取反加1)，然后保证符号位不变，其余位向右移动到X位，在移动的过程中，高位补1.等移位完成以后，然后保持符号位不变，其余按位取反加1，得到移位后所对应数的原码。即为所求。
+         *     对于负数的右移：因为负数在内存中是以补码形式存在的，所有首先根据负数的原码求出负数的补码(符号位不变，其余位按照原码取反加1)，然后保证符号位不变，其余位向右移动到X位，在移动的过程中，高位补1.等移位完成以后，然后保持符号位不变，其余按位取反加1，得到移位后所对应数的原码。即为所求。
          *        举例1：
          *               -100带符号右移4位。
          *               -100原码：   10000000    00000000    00000000   01100100
@@ -78,9 +78,8 @@ public class Netty1_FastThreadLocal {
          *                           00001111    11111111    11111111    11111001
          *                即为所求：268435449
          *
-         * 总结：正数的左移与右移，负数的无符号右移，就是相应的补码移位所得，在高位补0即可。
-         *
-         *           负数的右移，就是补码高位补1,然后按位取反加1即可。
+         * 正数的左移与右移，负数的无符号右移，就是相应的补码移位所得，在高位补0即可。
+         * 负数的右移，就是补码高位补1,然后按位取反加1即可。
          * </pre>
          */
         System.out.println(-100 >>> 4);
@@ -111,7 +110,7 @@ public class Netty1_FastThreadLocal {
      * IdentityHashMap的构造函数:其实capacity函数已经保证了2的倍数和预分配了，按道理init里面不用乘2了。 这里乘2是因为capacity指的是key的个数， 而IdentityHashMay的存储方式是在一个Object[]中key和value相邻存储， 所以要两倍的空间大小
      */
     @Test
-    public void t() {
+    public void multipleFtl() {
         FastThreadLocal<Object> local = new FastThreadLocal<>();
         local.set("第一次设值成功之后会初始化remove");
         //第二次构建ftl会使自身的idx继续递增
@@ -133,25 +132,25 @@ public class Netty1_FastThreadLocal {
 
     @Test
     public void testSingleObj() {
-        System.out.println(Netty1_FastThreadLocal.getInstance());
+        System.out.println(FastThreadLocalTest.getInstance());
 
     }
 
 
     private static class SingleInstanceHolder {
-        public static Netty1_FastThreadLocal instance = new Netty1_FastThreadLocal();
+        public static FastThreadLocalTest instance = new FastThreadLocalTest();
     }
 
-    public static Netty1_FastThreadLocal getInstance() {
+    public static FastThreadLocalTest getInstance() {
         return SingleInstanceHolder.instance;
     }
 
-/*    private Netty1_FastThreadLocal() {
+/*    private FastThreadLocalTest() {
 
     }*/
 
 
-    public Netty1_FastThreadLocal() {
+    public FastThreadLocalTest() {
 
     }
 }

@@ -18,6 +18,7 @@ import java.util.concurrent.locks.LockSupport;
  * https://xdkxlk.github.io/2018/11/19/ThreadLocal/ 最先看
  * https://www.cnblogs.com/moderate-fish/p/7658926.html
  * https://www.cnblogs.com/hongdada/p/12108611.html
+ *
  * @author : MrLawrenc
  * date  2020/8/9 14:50
  */
@@ -42,7 +43,6 @@ public class ThreadLocalTest {
         Thread thread = new Thread(() -> {
             int count = 0;
             while (true) {
-
                 LockSupport.park();
                 log.info("local1 value({}):{}", ++count, local1.get());
                 log.info("local2 value({}):{}", count, local2.get());
@@ -53,7 +53,6 @@ public class ThreadLocalTest {
         });
         thread.start();
 
-        LockSupport.unpark(thread);
 
         TimeUnit.SECONDS.sleep(2);
 

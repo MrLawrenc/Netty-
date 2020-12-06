@@ -1,4 +1,4 @@
-# Netty1-ThreadLocal和FastThreadLocal源码分析
+Netty1-ThreadLocal和FastThreadLocal源码分析
 
 ## 概述
 
@@ -825,17 +825,266 @@ set方法主要分为三种情况
 
 ## FastThreadLocal源码
 
+FastThreadLocal是netty自己实现的threadLocal，摒弃了jdk的存储结构，不会出现hash冲突，在高并发情况下，基本性能可以高出jdk的3倍之多
+
+以下所有的FTL为FastThreadLocal的简称，而FTLT为FastThreadLocalThread的简称
+
+### new FastThreadLocal()
+
+```java
+public FastThreadLocal() {
+    index = InternalThreadLocalMap.nextVariableIndex();
+}
+```
+
+初始化index的值，注意这里是的index是从开始递增的，nextIndex变量是在父类声明的，而在FastThreadLocal里面有一个静态变量variablesToRemoveIndex，该变量在FTL加载时已经被赋值为0，且nextIndex已经递增为1了
+
+```java
+class UnpaddedInternalThreadLocalMap {
+    static final AtomicInteger nextIndex = new AtomicInteger();
+}
+//FastThreadLocal
+private static final int variablesToRemoveIndex = InternalThreadLocalMap.nextVariableIndex();
+```
+
+这里提一句，index是每个FTL都有一个，且不重复的，因此也就不会造成hash冲突；variablesToRemoveIndex永远为0，在0处存储所有的FTL信息
+
 ### set
+
+```java
+public final void set(V value) {
+   // InternalThreadLocalMap初始化时全部填充的UNSET，后面跟代码会发现
+    if (value != InternalThreadLocalMap.UNSET) {
+        InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
+        setKnownNotUnset(threadLocalMap, value);
+    } else {//这个else分支有必要吗？
+        remove();
+    }
+}
+// 常量
+public static final Object UNSET = new Object();
+```
+
+可以发现，在第一次设值时，通常是满足if条件的
+
+```java
+public static InternalThreadLocalMap get() {
+    Thread thread = Thread.currentThread();
+    if (thread instanceof FastThreadLocalThread) {
+        return fastGet((FastThreadLocalThread) thread);
+    } else {
+        //曲线救国  兼兼容非FastThreadLocalThread线程使用的情况
+        return slowGet();
+    }
+}
+```
+
+get方法主要是拿到一个InternalThreadLocalMap对象，这里有个区分是否是FTLT的判断，如果是就使用fastGet实例化，否则slowGet。slowGet也是创建InternalThreadLocalMap对象，只不过将该对象存放到ThreadLocal里面了。下面主要看下fastGet过程
+
+```jav
+    private static InternalThreadLocalMap fastGet(FastThreadLocalThread thread) {
+        InternalThreadLocalMap threadLocalMap = thread.threadLocalMap();
+        if (threadLocalMap == null) {
+            thread.setThreadLocalMap(threadLocalMap = new InternalThreadLocalMap());
+        }
+        return threadLocalMap;
+    }
+    
+public class FastThreadLocalThread extends Thread {
+ 
+    private InternalThreadLocalMap threadLocalMap;
+}
+```
+
+拿到FTLF里面的threadLocalMap对象，如果不存在，则创建，第一次来肯定是创建
+
+```java
+ private InternalThreadLocalMap() {
+        super(newIndexedVariableTable());
+    }
+
+    private static Object[] newIndexedVariableTable() {
+        Object[] array = new Object[32];
+        Arrays.fill(array, UNSET);
+        return array;
+    }
+	//super的构造方法
+    UnpaddedInternalThreadLocalMap(Object[] indexedVariables) {
+        this.indexedVariables = indexedVariables;
+    }
+
+   public static final Object UNSET = new Object();
+```
+
+主要做了一件事，初始化FTL中的InternalThreadLocalMap存储结构，即indexedVariables数组，该数组在第一次初始化时全部填充了UNSET。
+
+回到set方法，进入setKnownNotUnset(threadLocalMap, value);方法设值
+
+```java
+ private void setKnownNotUnset(InternalThreadLocalMap threadLocalMap, V value) {
+        if (threadLocalMap.setIndexedVariable(index, value)) {
+            //初始化索引0处的一个待移除集合  Set<FastThreadLocal<?>>
+            addToVariablesToRemove(threadLocalMap, this);
+        }
+ }
+```
+
+设值成功之后，如果是第一次插入就会初始化idx=0的数据
+
+```java
+    public boolean setIndexedVariable(int index, Object value) {
+        Object[] lookup = indexedVariables;
+        if (index < lookup.length) {
+            Object oldValue = lookup[index];
+            lookup[index] = value;
+            //第一次插入则是true
+            return oldValue == UNSET;
+        } else {
+            expandIndexedVariableTableAndSet(index, value);
+            return true;
+        }
+    }
+```
+
+设值比较简单，如果indexedVariables数组还有容量则直接赋值，这里就体现了FTL比传统的ThreadLocal快的原因了，没有hash操作，也不会出现hash冲突，每个FTL初始化成功之后就已经确定好了落在数组的哪个位置，插入和读取速度都快很多。如果第一次插入，该槽的旧值就是初始化填充的UNSET，该方法就会返回true。
+
+如果容量满了就扩容
+
+```java
+    private void expandIndexedVariableTableAndSet(int index, Object value) {
+        Object[] oldArray = indexedVariables;
+        final int oldCapacity = oldArray.length;
+        int newCapacity = index;
+        newCapacity |= newCapacity >>>  1;
+        newCapacity |= newCapacity >>>  2;
+        newCapacity |= newCapacity >>>  4;
+        newCapacity |= newCapacity >>>  8;
+        newCapacity |= newCapacity >>> 16;
+        newCapacity ++;
+
+        Object[] newArray = Arrays.copyOf(oldArray, newCapacity);
+        Arrays.fill(newArray, oldCapacity, newArray.length, UNSET);
+        newArray[index] = value;
+        indexedVariables = newArray;
+    }
+```
+
+和hashmap的扩容差不多，都是找到离源oldArray长度最近的一个2的幂次方的数，即在第一次调整容量之后每次扩容2倍，之后数据再赋值过去，由此可以可见，如果FTL的存储数量能预估，最好设定初始容量，以防扩容。
+
+当setIndexedVariable返回true时，代表第一次插入，就会初始化0处的待移除集合，继续跟 addToVariablesToRemove(threadLocalMap, this);
+
+```java
+    private static void addToVariablesToRemove(InternalThreadLocalMap threadLocalMap, FastThreadLocal<?> variable) {
+        Object v = threadLocalMap.indexedVariable(variablesToRemoveIndex);
+        Set<FastThreadLocal<?>> variablesToRemove;
+        if (v == InternalThreadLocalMap.UNSET || v == null) {
+            //使用IdentityHashMap确保key FTL不会出现hash冲突
+            variablesToRemove = Collections.newSetFromMap(new IdentityHashMap<FastThreadLocal<?>, Boolean>());
+            threadLocalMap.setIndexedVariable(variablesToRemoveIndex, variablesToRemove);
+        } else {
+            variablesToRemove = (Set<FastThreadLocal<?>>) v;
+        }
+
+        variablesToRemove.add(variable);
+    }
+```
+
+variablesToRemoveIndex值是静态变量，前面已经分析过了，class被加载的时候，该变量随后会被赋值为0，第一次插入时得到的v=UNSET，则会进入初始化步骤
+
+variablesToRemove是SetFromMap类型，简单理解为一个set，之后将该set存到threadLocalMap的variablesToRemoveIndex=0处，再将本次新增的FastThreadLocal对象添加进set。
+
+至此，FTL第一次插入已经完成，之后的插入基本差不多，先往threadLocalMap的indexedVariables数组中添加值，之后再判断该ftl对象是否是第一次插入，如果是就再添加到0处的set集合中
 
 ### get
 
+```java
+    public final V get() {
+        InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.get();
+        Object v = threadLocalMap.indexedVariable(index);
+        if (v != InternalThreadLocalMap.UNSET) {
+            return (V) v;
+        }
 
+        return initialize(threadLocalMap);
+    }
+```
 
+get方法比较简单，拿到threadLocalMap之后，再根据当前FTL的索引index拿到目标值，如果没有，则返回init的默认值
 
+### remove
 
-## Netty中如何使用
+```java
+    public final void remove() {
+        remove(InternalThreadLocalMap.getIfSet());
+    }
+	
+    public static InternalThreadLocalMap getIfSet() {
+        Thread thread = Thread.currentThread();
+        if (thread instanceof FastThreadLocalThread) {
+            return ((FastThreadLocalThread) thread).threadLocalMap();
+        }
+        return slowThreadLocalMap.get();
+    }
+```
 
-和其他类一起构建起高并发基础
+拿到InternalThreadLocalMap对象，调用重载的remove方法
+
+```java
+    public final void remove(InternalThreadLocalMap threadLocalMap) {
+        if (threadLocalMap == null) {
+            return;
+        }
+		//1.
+        Object v = threadLocalMap.removeIndexedVariable(index);
+        //2.
+        removeFromVariablesToRemove(threadLocalMap, this);
+		//3.
+        if (v != InternalThreadLocalMap.UNSET) {
+            try {
+                onRemoval((V) v);
+            } catch (Exception e) {
+                PlatformDependent.throwException(e);
+            }
+        }
+    }
+```
+
+分三步完成
+
+1. 根据索引index移除threadLocalMap的数组中的值
+2. 从待移除set中，即index=0处移除该FTL对象
+3. 如果移除成功，则回调onRemoval方法
+
+### removeAll
+
+```java
+    public static void removeAll() {
+        InternalThreadLocalMap threadLocalMap = InternalThreadLocalMap.getIfSet();
+        if (threadLocalMap == null) {
+            return;
+        }
+
+        try {
+            Object v = threadLocalMap.indexedVariable(variablesToRemoveIndex);
+            if (v != null && v != InternalThreadLocalMap.UNSET) {
+                @SuppressWarnings("unchecked")
+                Set<FastThreadLocal<?>> variablesToRemove = (Set<FastThreadLocal<?>>) v;
+                //????????idx=0处的set是否有存在的必要(removeall直接删除InternalThreadLocalMap(map里面有空槽))；若存在为什么要用set（）；
+                // 为什么要转为数组（toarry复制,java.util.IdentityHashMap.KeySet.toArray(T[])复写了复制逻辑）再循环（如果是set则迭代器，数组则for）
+                // https://github.com/netty/netty/issues/10599#issuecomment-730283389
+                FastThreadLocal<?>[] variablesToRemoveArray =
+                        variablesToRemove.toArray(new FastThreadLocal[0]);
+                for (FastThreadLocal<?> tlv : variablesToRemoveArray) {
+                    tlv.remove(threadLocalMap);
+                }
+            }
+        } finally {
+            InternalThreadLocalMap.remove();
+        }
+    }
+```
+
+和remove方法大致差不多，区别就在于是拿出index=0处的set集合，转为variablesToRemoveArray数组，一次调用remove方法全部移除，最后finally中再清除InternalThreadLocalMap
 
 ## 参考文章
 
@@ -847,7 +1096,13 @@ set方法主要分为三种情况
 
 [Netty In Action](https://search.jd.com/Search?keyword=netty%20in%20action&enc=utf-8&suggest=1.def.0.base&wq=Netty%20in&pvid=fca1efd55e0848c9a7e9fe29aaf4057e)
 
+ [计算对象大小](https://www.jianshu.com/p/9d729c9c94c4)
 
+[美团agent相关的动态追踪](https://tech.meituan.com/2019/02/28/java-dynamic-trace.html)
+
+[缓存行]( https://my.oschina.net/manmao/blog/804161?nocache=1534146640808)
+
+## 附
 
 ### 使用ftl地方
 
@@ -861,13 +1116,12 @@ private final PoolThreadLocalCache threadCache;
 
 ---
 
+Recycler对象池中
+
 ![Recycler对象池中使用FTL](https://lmy25.wang/Netty%E5%9B%BE%E5%BA%8A/%20netty%E4%BD%BF%E7%94%A8ftl2.png)
 
 
 
-## 附
 
-- [ 计算对象大小](https://www.jianshu.com/p/9d729c9c94c4)
 
-- [美团agent相关的动态追踪](https://tech.meituan.com/2019/02/28/java-dynamic-trace.html)
-- [缓存行]( https://my.oschina.net/manmao/blog/804161?nocache=1534146640808)
+
