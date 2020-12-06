@@ -6,6 +6,7 @@ import java.nio.IntBuffer;
 import java.security.SecureRandom;
 
 /**
+ * bio nio aio : https://www.cnblogs.com/twoheads/p/10712094.html
  * @author : MrLawrenc
  * date  2020/7/28 21:04
  */

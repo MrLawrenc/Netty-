@@ -20,7 +20,7 @@ import java.util.concurrent.locks.LockSupport;
  * https://www.cnblogs.com/hongdada/p/12108611.html
  *
  * @author : MrLawrenc
- * date  2020/8/9 14:50
+ * date  2020/7/9 14:50
  */
 @Slf4j
 public class ThreadLocalTest {

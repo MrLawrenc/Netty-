@@ -5,6 +5,9 @@ import org.junit.Test;
 import java.util.ServiceLoader;
 
 /**
+ *
+ * Serial Peripheral interface的缩写，顾名思义就是串行外围设备接口
+ *
  * 详见 META-INF/services 下的spi配置
  * <p>
  * mysql等数据库驱动加载原理就依赖于jdk的spi，和当前demo一样
